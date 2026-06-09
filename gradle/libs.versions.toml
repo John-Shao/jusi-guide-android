@@ -9,6 +9,10 @@ coroutines = "1.9.0"
 okhttp = "4.12.0"
 camerax = "1.4.0"
 securityCrypto = "1.1.0-alpha06"
+# 高德导航 SDK：navi-3dmap 含 3D地图+导航+定位。POI 搜索走 Web 服务 REST（见 DestinationResolver），
+# 不引独立 search 包以避开 com.amap.apis.utils.core 重复类。
+# latest.integration 让 Gradle 每次构建拉取最新版；上线前建议 pin 具体版本（如 10.0.800_3dmap10.0.800）。
+amapNavi = "latest.integration"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -35,6 +39,8 @@ androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycl
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+
+amap-navi = { group = "com.amap.api", name = "navi-3dmap", version.ref = "amapNavi" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

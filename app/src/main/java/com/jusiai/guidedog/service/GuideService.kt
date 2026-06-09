@@ -1,11 +1,13 @@
 package com.jusiai.guidedog.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.SystemClock
 import android.util.Log
@@ -55,18 +57,36 @@ class GuideService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        if (intent?.action == ACTION_STOP) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        if (!started) {
-            started = true
-            startForegroundNotification()
-            app.guideState.update { it.copy(running = true, error = null) }
-            startCamera()
-            loopJob = startLoop()
+        when (intent?.action) {
+            ACTION_STOP -> { stopSelf(); return START_NOT_STICKY }
+            ACTION_STOP_NAV -> { app.navigator.stop(); return START_NOT_STICKY }
+            ACTION_START_NAV -> {
+                ensureStarted()
+                // 导航需要后台 GPS：此刻定位权限已授予，重申前台通知把 location 类型补上。
+                startForegroundNotification()
+                val start = com.amap.api.navi.model.NaviLatLng(
+                    intent.getDoubleExtra(EX_START_LAT, 0.0), intent.getDoubleExtra(EX_START_LNG, 0.0),
+                )
+                val end = com.amap.api.navi.model.NaviLatLng(
+                    intent.getDoubleExtra(EX_DEST_LAT, 0.0), intent.getDoubleExtra(EX_DEST_LNG, 0.0),
+                )
+                val name = intent.getStringExtra(EX_NAME) ?: ""
+                val sim = intent.getBooleanExtra(EX_SIM, false)
+                app.navigator.startWalk(start, end, name, sim)
+            }
+            else -> ensureStarted()
         }
         return START_NOT_STICKY
+    }
+
+    /** Start the foreground service + camera + perception loop once. */
+    private fun ensureStarted() {
+        if (started) return
+        started = true
+        startForegroundNotification()
+        app.guideState.update { it.copy(running = true, error = null) }
+        startCamera()
+        loopJob = startLoop()
     }
 
     // ---- camera ----------------------------------------------------------------
@@ -151,7 +171,12 @@ class GuideService : LifecycleService() {
                     Log.i(TAG, "guidance = \"${r.text}\" (repeat=${r.repeat})")
                     if (settings.wantAudio && !r.repeat) audio.ensure(r.sampleRate)
                 },
-                onPcm = { data, len -> if (settings.wantAudio) audio.write(data, len) },
+                // 双语音协调：导航/提示语音播报时、或正在语音设目的地时，抑制视觉播报，避免互相干扰。
+                onPcm = { data, len ->
+                    if (settings.wantAudio && !app.speaker.speaking.value && !app.navState.capturingVoice.value) {
+                        audio.write(data, len)
+                    }
+                },
             )
             val cycleMs = SystemClock.elapsedRealtime() - cycleStart
             if (result != null) {
@@ -196,14 +221,33 @@ class GuideService : LifecycleService() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
 
-        val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-        startForeground(NOTIF_ID, notif, type)
+        startForeground(NOTIF_ID, notif, foregroundType())
     }
+
+    /**
+     * Android 14+ 要求 startForeground 声明的每个类型都已持有对应权限，否则抛 SecurityException。
+     * 相机/媒体在"开始"时已具备；定位权限是导航时才申请的，所以这里按当前已授予的权限动态拼装：
+     * 没有定位权限就不带 location 类型，导航开始（已授权）时再调用本方法把 location 加上。
+     */
+    private fun foregroundType(): Int {
+        var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+        if (hasLocationPermission()) {
+            type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        }
+        return type
+    }
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
 
     override fun onDestroy() {
         loopJob?.cancel()
         ioScope.cancel()
+        app.navigator.stop()   // 导航依赖前台服务，服务退出即停导航
         try { ProcessCameraProvider.getInstance(this).get().unbindAll() } catch (_: Exception) {}
         cameraExecutor.shutdown()
         app.audioPlayer.release()
@@ -218,6 +262,14 @@ class GuideService : LifecycleService() {
         private const val NOTIF_ID = 1
         private const val ANALYZE_INTERVAL_MS = 200L
         const val ACTION_STOP = "com.jusiai.guidedog.action.STOP"
+        const val ACTION_START_NAV = "com.jusiai.guidedog.action.START_NAV"
+        const val ACTION_STOP_NAV = "com.jusiai.guidedog.action.STOP_NAV"
+        private const val EX_START_LAT = "start_lat"
+        private const val EX_START_LNG = "start_lng"
+        private const val EX_DEST_LAT = "dest_lat"
+        private const val EX_DEST_LNG = "dest_lng"
+        private const val EX_NAME = "dest_name"
+        private const val EX_SIM = "simulate"
 
         fun start(ctx: Context) {
             ContextCompat.startForegroundService(ctx, Intent(ctx, GuideService::class.java))
@@ -225,6 +277,25 @@ class GuideService : LifecycleService() {
 
         fun stop(ctx: Context) {
             ctx.stopService(Intent(ctx, GuideService::class.java))
+        }
+
+        /** 开始步行导航：会确保服务（含摄像头视觉引导）一并启动。 */
+        fun startNav(
+            ctx: Context,
+            startLat: Double, startLng: Double,
+            destLat: Double, destLng: Double,
+            name: String, simulate: Boolean,
+        ) {
+            val i = Intent(ctx, GuideService::class.java).setAction(ACTION_START_NAV)
+                .putExtra(EX_START_LAT, startLat).putExtra(EX_START_LNG, startLng)
+                .putExtra(EX_DEST_LAT, destLat).putExtra(EX_DEST_LNG, destLng)
+                .putExtra(EX_NAME, name).putExtra(EX_SIM, simulate)
+            ContextCompat.startForegroundService(ctx, i)
+        }
+
+        /** 仅停止导航，服务（视觉引导）继续运行。 */
+        fun stopNav(ctx: Context) {
+            ctx.startService(Intent(ctx, GuideService::class.java).setAction(ACTION_STOP_NAV))
         }
     }
 }

@@ -12,6 +12,10 @@ local.properties
 # Per-module build output
 /app/build/
 
+# Kotlin / IDE caches
+.kotlin/
+/.vscode/
+
 # Keystores (never commit signing material)
 *.jks
 *.keystore

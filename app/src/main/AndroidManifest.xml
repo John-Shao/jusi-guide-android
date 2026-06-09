@@ -8,6 +8,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- 高德步行导航：定位 + 语音目的地输入 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <application
@@ -18,6 +27,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.GuideDog">
+
+        <!-- 高德 Key 由 build.gradle.kts 从 local.properties 注入（AMAP_KEY） -->
+        <meta-data
+            android:name="com.amap.api.v2.apikey"
+            android:value="${AMAP_KEY}" />
 
         <activity
             android:name=".MainActivity"
@@ -33,6 +47,6 @@
         <service
             android:name=".service.GuideService"
             android:exported="false"
-            android:foregroundServiceType="camera|mediaPlayback" />
+            android:foregroundServiceType="camera|mediaPlayback|location" />
     </application>
 </manifest>

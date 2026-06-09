@@ -57,13 +57,25 @@ fun GuideScreen(vm: GuideViewModel) {
     val context = LocalContext.current
     val status by vm.status.collectAsStateWithLifecycle()
     val preview by vm.preview.collectAsStateWithLifecycle()
+    val nav by vm.navStatus.collectAsStateWithLifecycle()
+
+    // 模拟导航开关：室内/无 GPS 时验证整条流程
+    var simulate by remember { mutableStateOf(false) }
 
     var cameraGranted by remember { mutableStateOf(hasCamera(context)) }
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
         cameraGranted = result[Manifest.permission.CAMERA] ?: hasCamera(context)
-        if (cameraGranted) vm.start()
+        if (cameraGranted) vm.start(simulate)
+    }
+
+    val navPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        val ok = (result[Manifest.permission.RECORD_AUDIO] ?: hasPerm(context, Manifest.permission.RECORD_AUDIO)) &&
+            (result[Manifest.permission.ACCESS_FINE_LOCATION] ?: hasPerm(context, Manifest.permission.ACCESS_FINE_LOCATION))
+        if (ok) vm.setDestinationByVoice(simulate)
     }
 
     var showSettings by remember { mutableStateOf(false) }
@@ -136,11 +148,74 @@ fun GuideScreen(vm: GuideViewModel) {
             }
 
             val running = status.running
+
+            // ---- 步行导航：建议先用语音设好目的地（此时无视觉播报/开麦干扰），再点「开始」----
+            if (nav.navigating) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(nav.phase.ifEmpty { "导航中" }, style = MaterialTheme.typography.titleMedium)
+                    if (nav.destName.isNotBlank()) {
+                        Text("目的地：${nav.destName}", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (nav.remainingDist >= 0) {
+                        Text(
+                            "剩余 ${nav.remainingDist} 米，约 ${nav.remainingTime / 60} 分钟",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    if (nav.nextRoad.isNotBlank()) {
+                        Text(
+                            "下一段：${nav.nextRoad}" +
+                                if (nav.nextTurnDist >= 0) "（${nav.nextTurnDist} 米）" else "",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    nav.error?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                Button(
+                    onClick = { vm.stopNav() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(72.dp)
+                        .semantics { contentDescription = "结束导航" },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) { Text("结束导航", style = MaterialTheme.typography.titleLarge) }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("模拟导航（室内测试）", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = simulate, onCheckedChange = { simulate = it })
+                }
+                Button(
+                    onClick = {
+                        if (hasNavPerms(context)) vm.setDestinationByVoice(simulate)
+                        else navPermLauncher.launch(navPermissions())
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(72.dp)
+                        .semantics { contentDescription = "语音设置目的地" },
+                ) { Text("语音设置目的地", style = MaterialTheme.typography.titleLarge) }
+                if (nav.phase.isNotBlank()) {
+                    Text(
+                        if (nav.phase == "已设目的地" && nav.destName.isNotBlank()) {
+                            "已设目的地：${nav.destName}（点击开始导航）"
+                        } else {
+                            nav.phase
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                nav.error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
             Button(
                 onClick = {
                     when {
                         running -> vm.stop()
-                        cameraGranted -> vm.start()
+                        cameraGranted -> vm.start(simulate)
                         else -> permLauncher.launch(neededPermissions())
                     }
                 },
@@ -234,8 +309,13 @@ private fun SettingsSheet(vm: GuideViewModel, onDismiss: () -> Unit) {
     }
 }
 
-private fun hasCamera(c: Context): Boolean =
-    ContextCompat.checkSelfPermission(c, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+private fun hasPerm(c: Context, p: String): Boolean =
+    ContextCompat.checkSelfPermission(c, p) == PackageManager.PERMISSION_GRANTED
+
+private fun hasCamera(c: Context): Boolean = hasPerm(c, Manifest.permission.CAMERA)
+
+private fun hasNavPerms(c: Context): Boolean =
+    hasPerm(c, Manifest.permission.RECORD_AUDIO) && hasPerm(c, Manifest.permission.ACCESS_FINE_LOCATION)
 
 private fun neededPermissions(): Array<String> =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -243,3 +323,9 @@ private fun neededPermissions(): Array<String> =
     } else {
         arrayOf(Manifest.permission.CAMERA)
     }
+
+private fun navPermissions(): Array<String> = arrayOf(
+    Manifest.permission.RECORD_AUDIO,
+    Manifest.permission.ACCESS_FINE_LOCATION,
+    Manifest.permission.ACCESS_COARSE_LOCATION,
+)
