@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.BitmapFactory
 import android.os.SystemClock
 import android.util.Log
 import androidx.camera.core.CameraSelector
@@ -52,7 +51,7 @@ class GuideService : LifecycleService() {
     private val latest = AtomicReference<Frame?>(null)
     private var loopJob: Job? = null
     private var started = false
-    private var lastPreviewAt = 0L
+    private var lastAnalyzeAt = 0L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
@@ -100,22 +99,20 @@ class GuideService : LifecycleService() {
 
     private fun onFrame(image: androidx.camera.core.ImageProxy) {
         try {
+            // CameraX delivers ~30 fps, but the (~1 s) loop and the preview only
+            // need a fresh frame every ~200 ms. Converting every frame to NV21
+            // churns CPU/GC and janks the UI, so throttle here; skipped frames are
+            // just closed in finally.
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastAnalyzeAt < ANALYZE_INTERVAL_MS) return
+            lastAnalyzeAt = now
+
             val w = image.width
             val h = image.height
             val rot = image.imageInfo.rotationDegrees
             val nv21 = Yuv.toNv21(image)
             latest.set(Frame(nv21, w, h, rot))
-
-            // Drive the UI preview a few times a second (upright, small).
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastPreviewAt > 300) {
-                lastPreviewAt = now
-                Yuv.nv21ToJpeg(nv21, w, h, rot, 360, 70)?.let { jpeg ->
-                    BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.let { bmp ->
-                        app.guideState.preview.value = bmp
-                    }
-                }
-            }
+            Yuv.toPreviewBitmap(nv21, w, h, rot, 360)?.let { app.guideState.preview.value = it }
         } catch (e: Exception) {
             Log.w(TAG, "frame error: ${e.message}")
         } finally {
@@ -219,6 +216,7 @@ class GuideService : LifecycleService() {
         private const val TAG = "guide.service"
         private const val CHANNEL = "guide_running"
         private const val NOTIF_ID = 1
+        private const val ANALYZE_INTERVAL_MS = 200L
         const val ACTION_STOP = "com.jusiai.guidedog.action.STOP"
 
         fun start(ctx: Context) {

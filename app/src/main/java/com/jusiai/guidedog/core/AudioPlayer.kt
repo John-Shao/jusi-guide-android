@@ -21,6 +21,7 @@ import android.util.Log
 class AudioPlayer {
     private var track: AudioTrack? = null
     private var sampleRate = 0
+    private var carry: Byte? = null   // leftover odd byte from a chunk (16-bit frame split)
 
     @Synchronized
     fun ensure(sr: Int) {
@@ -51,13 +52,34 @@ class AudioPlayer {
         track?.play()
     }
 
-    /** Append PCM to the playback buffer. Blocks only when the buffer is full. */
+    /**
+     * Append PCM to the playback buffer. The relay streams in arbitrary-sized
+     * chunks that may end on an odd byte; a 16-bit frame must never be split, or
+     * every later sample shifts by a byte and the speech turns into loud static.
+     * So we re-attach a byte carried from the previous chunk and hold back a
+     * trailing odd byte for the next one. Blocks only when the buffer is full.
+     */
     @Synchronized
     fun write(data: ByteArray, len: Int) {
         val t = track ?: return
+        var src = data
+        var size = len
+        val c = carry
+        if (c != null) {
+            val merged = ByteArray(size + 1)
+            merged[0] = c
+            System.arraycopy(data, 0, merged, 1, size)
+            src = merged
+            size += 1
+            carry = null
+        }
+        if (size and 1 == 1) {          // odd: stash the last byte for next time
+            carry = src[size - 1]
+            size -= 1
+        }
         var off = 0
-        while (off < len) {
-            val n = t.write(data, off, len - off)
+        while (off < size) {
+            val n = t.write(src, off, size - off)
             if (n <= 0) { Log.w(TAG, "AudioTrack.write returned $n"); break }
             off += n
         }
@@ -71,6 +93,7 @@ class AudioPlayer {
         }
         track = null
         sampleRate = 0
+        carry = null
     }
 
     private companion object {

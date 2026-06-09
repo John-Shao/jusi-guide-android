@@ -107,4 +107,36 @@ object Yuv {
         bmp.recycle()
         return out.toByteArray()
     }
+
+    /**
+     * Decode NV21 to an upright preview Bitmap (~[maxDim] on the long side). One
+     * encode + one decode (no re-encode), so it is much lighter than nv21ToJpeg —
+     * use it for the on-screen preview, not for upload.
+     */
+    fun toPreviewBitmap(
+        nv21: ByteArray,
+        width: Int,
+        height: Int,
+        rotationDegrees: Int,
+        maxDim: Int,
+    ): Bitmap? {
+        val baos = ByteArrayOutputStream()
+        YuvImage(nv21, ImageFormat.NV21, width, height, null)
+            .compressToJpeg(Rect(0, 0, width, height), 70, baos)
+        val full = baos.toByteArray()
+
+        val longSide = maxOf(width, height)
+        var sample = 1
+        if (maxDim > 0) while (longSide / (sample * 2) >= maxDim) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        var bmp = BitmapFactory.decodeByteArray(full, 0, full.size, opts) ?: return null
+
+        if (rotationDegrees != 0) {
+            val m = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+            val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+            if (rotated !== bmp) bmp.recycle()
+            bmp = rotated
+        }
+        return bmp
+    }
 }
