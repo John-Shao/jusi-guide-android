@@ -71,8 +71,7 @@ class GuideService : LifecycleService() {
                     intent.getDoubleExtra(EX_DEST_LAT, 0.0), intent.getDoubleExtra(EX_DEST_LNG, 0.0),
                 )
                 val name = intent.getStringExtra(EX_NAME) ?: ""
-                val sim = intent.getBooleanExtra(EX_SIM, false)
-                app.navigator.startWalk(start, end, name, sim)
+                app.navigator.startWalk(start, end, name)
             }
             else -> ensureStarted()
         }
@@ -269,7 +268,6 @@ class GuideService : LifecycleService() {
         private const val EX_DEST_LAT = "dest_lat"
         private const val EX_DEST_LNG = "dest_lng"
         private const val EX_NAME = "dest_name"
-        private const val EX_SIM = "simulate"
 
         fun start(ctx: Context) {
             ContextCompat.startForegroundService(ctx, Intent(ctx, GuideService::class.java))
@@ -284,12 +282,12 @@ class GuideService : LifecycleService() {
             ctx: Context,
             startLat: Double, startLng: Double,
             destLat: Double, destLng: Double,
-            name: String, simulate: Boolean,
+            name: String,
         ) {
             val i = Intent(ctx, GuideService::class.java).setAction(ACTION_START_NAV)
                 .putExtra(EX_START_LAT, startLat).putExtra(EX_START_LNG, startLng)
                 .putExtra(EX_DEST_LAT, destLat).putExtra(EX_DEST_LNG, destLng)
-                .putExtra(EX_NAME, name).putExtra(EX_SIM, simulate)
+                .putExtra(EX_NAME, name)
             ContextCompat.startForegroundService(ctx, i)
         }
 

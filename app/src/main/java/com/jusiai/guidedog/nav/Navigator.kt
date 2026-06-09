@@ -33,7 +33,6 @@ class Navigator(
     private var navi: AMapNavi? = null
 
     private var destName: String = ""
-    @Volatile private var simulate = false
     @Volatile private var calcPending = false   // 路线规划进行中（去重成功/失败的重复回调）
     @Volatile private var running = false        // 导航进行中
 
@@ -54,10 +53,9 @@ class Navigator(
         return navi
     }
 
-    /** 发起步行导航：算路成功后自动 startNavi。simulate=true 走模拟导航（室内验证用）。 */
-    fun startWalk(start: NaviLatLng, end: NaviLatLng, name: String, simulate: Boolean) {
+    /** 发起步行导航：算路成功后自动 startNavi（真实 GPS）。 */
+    fun startWalk(start: NaviLatLng, end: NaviLatLng, name: String) {
         destName = name
-        this.simulate = simulate
         navState.update {
             it.copy(
                 navigating = true, phase = "规划路线中…", destName = name, error = null,
@@ -97,7 +95,7 @@ class Navigator(
         running = true
         navState.update { it.copy(navigating = true, phase = "导航中") }
         try {
-            n.startNavi(if (simulate) NaviType.EMULATOR else NaviType.GPS)
+            n.startNavi(NaviType.GPS)
         } catch (e: Exception) {
             Log.e(TAG, "startNavi failed: ${e.message}")
         }

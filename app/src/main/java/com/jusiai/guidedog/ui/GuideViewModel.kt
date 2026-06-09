@@ -25,7 +25,7 @@ class GuideViewModel(private val app: GuideDogApp) : AndroidViewModel(app) {
     private var voiceJob: Job? = null
 
     /** 「开始」：启动视觉引导；若已用语音设好目的地，则一并开始步行导航。 */
-    fun start(simulate: Boolean) {
+    fun start() {
         GuideService.start(app)
         val dest = pendingDest ?: return
         pendingDest = null
@@ -36,7 +36,7 @@ class GuideViewModel(private val app: GuideDogApp) : AndroidViewModel(app) {
                 app.speaker.speak("无法获取当前位置，导航未开始", flush = true)
                 return@launch
             }
-            GuideService.startNav(app, loc.latitude, loc.longitude, dest.lat, dest.lng, dest.name, simulate)
+            GuideService.startNav(app, loc.latitude, loc.longitude, dest.lat, dest.lng, dest.name)
         }
     }
 
@@ -60,7 +60,7 @@ class GuideViewModel(private val app: GuideDogApp) : AndroidViewModel(app) {
      * - 若服务已在运行：边设边起导航；期间用 capturingVoice 抑制视觉播报避免互相干扰。
      * 调用前需已授予 RECORD_AUDIO 与定位权限。
      */
-    fun setDestinationByVoice(simulate: Boolean) {
+    fun setDestinationByVoice() {
         val nav = app.navState
         voiceJob?.cancel()
         voiceJob = viewModelScope.launch {
@@ -106,7 +106,7 @@ class GuideViewModel(private val app: GuideDogApp) : AndroidViewModel(app) {
                 if (status.value.running) {
                     // 已在运行：直接起导航（用刚拿到的定位作起点）
                     app.speaker.speakAndWait("目的地，${place.name}，开始步行导航")
-                    GuideService.startNav(app, loc.latitude, loc.longitude, place.lat, place.lng, place.name, simulate)
+                    GuideService.startNav(app, loc.latitude, loc.longitude, place.lat, place.lng, place.name)
                 } else {
                     // 推荐路径：先设好，等用户点「开始」
                     pendingDest = place

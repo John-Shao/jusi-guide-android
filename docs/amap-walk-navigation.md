@@ -31,7 +31,7 @@
    AMAP_WEB_KEY=你的Web服务Key
    ```
    构建时 `AMAP_KEY` 注入 manifest `com.amap.api.v2.apikey`，`AMAP_WEB_KEY` 注入 `BuildConfig`。
-4. 真机测试需开 GPS；室内用高德**模拟导航** `startNavi(NaviType.EMULATOR)` 验证流程（界面有"模拟导航"开关）。
+4. 导航走真实 GPS（`startNavi(NaviType.GPS)`），真机测试需开启定位/GPS。
 
 > 为什么 POI 用 REST 而非原生 search SDK：`com.amap.api:navi-3dmap`（含地图+导航+定位）与
 > `com.amap.api:search` 都内置了 `com.amap.apis.utils.core`，同时引入会重复类编译失败。改用 Web REST
@@ -47,7 +47,7 @@
   → Speaker(系统 TTS) 确认"目的地：X，开始步行导航"
   → GuideService(ACTION_START_NAV) → Navigator.startWalk(start, end)
        → AMapNavi.calculateWalkRoute(start,end)
-       → onCalculateRouteSuccess → startNavi(GPS 或 EMULATOR)
+       → onCalculateRouteSuccess → startNavi(GPS)
        → onGetNavigationText(转向文本) → Speaker(系统 TextToSpeech) 播报
        → onNaviInfoUpdate(剩余距离/时间/下一路口) → NavState(UI 显示)
        → onArriveDestination → TTS"已到达" → 停止
@@ -115,14 +115,14 @@
 ```
 首启授予 **相机 / 通知 / 麦克风 / 定位** 权限。
 
-### 3. 室内冒烟（模拟导航，无需 GPS）
-点「开始」（视觉引导起来）→ 打开「模拟导航」开关 → 点「语音设置目的地」→ 说一个本地地名 → 听到
-"目的地，X，开始步行导航" → 验证：转向经系统 TTS 播报、界面剩余距离/时间递减、到达播"已到达"。
-排障看 logcat：`adb logcat -s guide.navi guide.poi guide.loc guide.asr guide.tts guide.amap`
+### 3. 冒烟（建议先设目的地再开始）
+点「语音设置目的地」→ 说一个本地地名 → 听到"目的地已设为 X，请点击开始" → 点「开始」→
+验证：算路成功、转向经系统 TTS 播报、界面剩余距离/时间递减、到达播"已到达"。
+排障看 logcat：`adb logcat -s guide.navi guide.poi guide.loc guide.rec guide.tts guide.relay guide.amap`
 （POI 报 `USERKEY_PLAT_NOMATCH`=web key 类型不对；导航报鉴权失败=Android key 包名/SHA1 不符）。
 
 ### 4. 真机实走（GPS）
-关掉「模拟导航」开关，户外步行：验证起点定位、实时转向播报、双语音协调（导航播报时视觉播报被压住）。
+户外步行：验证起点定位、实时转向播报、双语音协调（导航播报时视觉播报被压住）。
 
 ### 5. 回归
 未设目的地时，原视觉引导（摄像头→relay→音频）完全不受影响。

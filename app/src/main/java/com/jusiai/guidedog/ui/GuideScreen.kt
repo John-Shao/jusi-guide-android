@@ -59,15 +59,12 @@ fun GuideScreen(vm: GuideViewModel) {
     val preview by vm.preview.collectAsStateWithLifecycle()
     val nav by vm.navStatus.collectAsStateWithLifecycle()
 
-    // 模拟导航开关：室内/无 GPS 时验证整条流程
-    var simulate by remember { mutableStateOf(false) }
-
     var cameraGranted by remember { mutableStateOf(hasCamera(context)) }
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
         cameraGranted = result[Manifest.permission.CAMERA] ?: hasCamera(context)
-        if (cameraGranted) vm.start(simulate)
+        if (cameraGranted) vm.start()
     }
 
     val navPermLauncher = rememberLauncherForActivityResult(
@@ -75,7 +72,7 @@ fun GuideScreen(vm: GuideViewModel) {
     ) { result ->
         val ok = (result[Manifest.permission.RECORD_AUDIO] ?: hasPerm(context, Manifest.permission.RECORD_AUDIO)) &&
             (result[Manifest.permission.ACCESS_FINE_LOCATION] ?: hasPerm(context, Manifest.permission.ACCESS_FINE_LOCATION))
-        if (ok) vm.setDestinationByVoice(simulate)
+        if (ok) vm.setDestinationByVoice()
     }
 
     var showSettings by remember { mutableStateOf(false) }
@@ -182,13 +179,9 @@ fun GuideScreen(vm: GuideViewModel) {
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 ) { Text("结束导航", style = MaterialTheme.typography.titleLarge) }
             } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("模拟导航（室内测试）", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    Switch(checked = simulate, onCheckedChange = { simulate = it })
-                }
                 Button(
                     onClick = {
-                        if (hasNavPerms(context)) vm.setDestinationByVoice(simulate)
+                        if (hasNavPerms(context)) vm.setDestinationByVoice()
                         else navPermLauncher.launch(navPermissions())
                     },
                     modifier = Modifier
@@ -215,7 +208,7 @@ fun GuideScreen(vm: GuideViewModel) {
                 onClick = {
                     when {
                         running -> vm.stop()
-                        cameraGranted -> vm.start(simulate)
+                        cameraGranted -> vm.start()
                         else -> permLauncher.launch(neededPermissions())
                     }
                 },
