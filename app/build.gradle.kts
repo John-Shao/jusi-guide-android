@@ -16,6 +16,15 @@ private val localProps = Properties().apply {
 val amapKey: String = localProps.getProperty("AMAP_KEY", "")
 val amapWebKey: String = localProps.getProperty("AMAP_WEB_KEY", "")
 
+// Release 签名：凭证放 local.properties（不入库）。缺失时自动跳过，debug/CI 仍可构建。
+//   RELEASE_STORE_FILE=keystore/guidedog-release.jks   （相对工程根目录）
+//   RELEASE_STORE_PASSWORD=...
+//   RELEASE_KEY_ALIAS=...
+//   RELEASE_KEY_PASSWORD=...
+val releaseStoreFile: String = localProps.getProperty("RELEASE_STORE_FILE", "")
+val hasReleaseSigning: Boolean =
+    releaseStoreFile.isNotEmpty() && rootProject.file(releaseStoreFile).exists()
+
 android {
     namespace = "com.jusiai.guidedog"
     compileSdk = 34
@@ -33,6 +42,17 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD", "")
+                keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS", "")
+                keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD", "")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -40,6 +60,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // 配了 release 签名才用；否则产出未签名包（提示在 local.properties 配置）。
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
