@@ -59,20 +59,11 @@ fun GuideScreen(vm: GuideViewModel) {
     val preview by vm.preview.collectAsStateWithLifecycle()
     val nav by vm.navStatus.collectAsStateWithLifecycle()
 
-    var cameraGranted by remember { mutableStateOf(hasCamera(context)) }
-    val permLauncher = rememberLauncherForActivityResult(
+    // 单按钮需要的全部权限：相机(视觉) + 麦克风(语音设目的地) + 定位(导航)。
+    val startPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { result ->
-        cameraGranted = result[Manifest.permission.CAMERA] ?: hasCamera(context)
-        if (cameraGranted) vm.start()
-    }
-
-    val navPermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { result ->
-        val ok = (result[Manifest.permission.RECORD_AUDIO] ?: hasPerm(context, Manifest.permission.RECORD_AUDIO)) &&
-            (result[Manifest.permission.ACCESS_FINE_LOCATION] ?: hasPerm(context, Manifest.permission.ACCESS_FINE_LOCATION))
-        if (ok) vm.setDestinationByVoice()
+    ) { _ ->
+        if (hasStartPerms(context)) vm.startGuided()
     }
 
     var showSettings by remember { mutableStateOf(false) }
@@ -145,91 +136,65 @@ fun GuideScreen(vm: GuideViewModel) {
             }
 
             val running = status.running
+            val busy = nav.busy
 
-            // ---- 步行导航：建议先用语音设好目的地（此时无视觉播报/开麦干扰），再点「开始」----
-            if (nav.navigating) {
+            // 导航中：显示目的地 / 剩余 / 下一段
+            if (running && nav.navigating) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(nav.phase.ifEmpty { "导航中" }, style = MaterialTheme.typography.titleMedium)
                     if (nav.destName.isNotBlank()) {
-                        Text("目的地：${nav.destName}", style = MaterialTheme.typography.bodyMedium)
+                        Text("目的地：${nav.destName}", style = MaterialTheme.typography.titleMedium)
                     }
                     if (nav.remainingDist >= 0) {
                         Text(
                             "剩余 ${nav.remainingDist} 米，约 ${nav.remainingTime / 60} 分钟",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyLarge,
                         )
                     }
                     if (nav.nextRoad.isNotBlank()) {
                         Text(
                             "下一段：${nav.nextRoad}" +
                                 if (nav.nextTurnDist >= 0) "（${nav.nextTurnDist} 米）" else "",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyLarge,
                         )
                     }
-                    nav.error?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-                Button(
-                    onClick = { vm.stopNav() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(72.dp)
-                        .semantics { contentDescription = "结束导航" },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                ) { Text("结束导航", style = MaterialTheme.typography.titleLarge) }
-            } else {
-                Button(
-                    onClick = {
-                        if (hasNavPerms(context)) vm.setDestinationByVoice()
-                        else navPermLauncher.launch(navPermissions())
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(72.dp)
-                        .semantics { contentDescription = "语音设置目的地" },
-                ) { Text("语音设置目的地", style = MaterialTheme.typography.titleLarge) }
-                if (nav.phase.isNotBlank()) {
-                    Text(
-                        if (nav.phase == "已设目的地" && nav.destName.isNotBlank()) {
-                            "已设目的地：${nav.destName}（点击开始导航）"
-                        } else {
-                            nav.phase
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                nav.error?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
+            // 语音设置阶段提示
+            if (busy && nav.phase.isNotBlank()) {
+                Text(nav.phase, style = MaterialTheme.typography.titleMedium)
+            }
+            nav.error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyLarge)
+            }
 
+            // 唯一大按钮：开始 / 取消 / 停止
+            val label = when { running -> "停止"; busy -> "取消"; else -> "开始" }
             Button(
                 onClick = {
                     when {
                         running -> vm.stop()
-                        cameraGranted -> vm.start()
-                        else -> permLauncher.launch(neededPermissions())
+                        busy -> vm.cancelGuided()
+                        hasStartPerms(context) -> vm.startGuided()
+                        else -> startPermLauncher.launch(startPermissions())
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(96.dp)
-                    .semantics { contentDescription = if (running) "停止导盲犬" else "开始导盲犬" },
-                colors = if (running) {
+                    .height(140.dp)
+                    .semantics {
+                        contentDescription = when {
+                            running -> "停止"
+                            busy -> "取消"
+                            else -> "开始，语音设置目的地并导航"
+                        }
+                    },
+                colors = if (running || busy) {
                     ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 } else {
                     ButtonDefaults.buttonColors()
                 },
             ) {
-                Text(if (running) "停止" else "开始", style = MaterialTheme.typography.headlineMedium)
-            }
-            if (!cameraGranted) {
-                Text(
-                    "需要相机权限才能开始",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                Text(label, style = MaterialTheme.typography.displaySmall)
             }
         }
     }
@@ -305,20 +270,21 @@ private fun SettingsSheet(vm: GuideViewModel, onDismiss: () -> Unit) {
 private fun hasPerm(c: Context, p: String): Boolean =
     ContextCompat.checkSelfPermission(c, p) == PackageManager.PERMISSION_GRANTED
 
-private fun hasCamera(c: Context): Boolean = hasPerm(c, Manifest.permission.CAMERA)
+/** 单按钮全流程所需：相机(视觉) + 麦克风(语音) + 定位(导航)。 */
+private fun hasStartPerms(c: Context): Boolean =
+    hasPerm(c, Manifest.permission.CAMERA) &&
+        hasPerm(c, Manifest.permission.RECORD_AUDIO) &&
+        hasPerm(c, Manifest.permission.ACCESS_FINE_LOCATION)
 
-private fun hasNavPerms(c: Context): Boolean =
-    hasPerm(c, Manifest.permission.RECORD_AUDIO) && hasPerm(c, Manifest.permission.ACCESS_FINE_LOCATION)
-
-private fun neededPermissions(): Array<String> =
+private fun startPermissions(): Array<String> {
+    val perms = mutableListOf(
+        Manifest.permission.CAMERA,
+        Manifest.permission.RECORD_AUDIO,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+    )
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        arrayOf(Manifest.permission.CAMERA, Manifest.permission.POST_NOTIFICATIONS)
-    } else {
-        arrayOf(Manifest.permission.CAMERA)
+        perms.add(Manifest.permission.POST_NOTIFICATIONS)
     }
-
-private fun navPermissions(): Array<String> = arrayOf(
-    Manifest.permission.RECORD_AUDIO,
-    Manifest.permission.ACCESS_FINE_LOCATION,
-    Manifest.permission.ACCESS_COARSE_LOCATION,
-)
+    return perms.toTypedArray()
+}

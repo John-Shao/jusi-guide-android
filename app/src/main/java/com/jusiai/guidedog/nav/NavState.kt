@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
  */
 data class NavStatus(
     val navigating: Boolean = false,
+    val busy: Boolean = false,         // 语音设目的地流程进行中（点开始后到进入导航前）
     val phase: String = "",            // "听取目的地中…" / "规划路线中…" / "导航中" 等可读阶段
     val destName: String = "",         // 目的地名称
     val remainingDist: Int = -1,       // 到目的地剩余距离（米）
