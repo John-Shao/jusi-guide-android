@@ -25,7 +25,7 @@ class GuideViewModel(private val app: GuideDogApp) : AndroidViewModel(app) {
 
     /**
      * 单按钮「开始」的全流程（面向盲人，纯语音）：
-     *   念"请说出目的地" → 录音识别 → 定位 → POI 搜索 → 念"目的地 X，确认请说确认，重设请说重说"
+     *   念"请说出目的地" → 录音识别 → 定位 → POI 搜索 → 念"目的地 X，确认请说正确，重设请说错误"
      *   → 用户语音确认 → 启动视觉引导 + 步行导航。
      * 任一步失败/未确认会语音说明并结束（用户可再点一次重来）。最多 3 轮尝试。
      * 调用前需已授予 相机 / 麦克风 / 定位 权限。
@@ -112,7 +112,7 @@ class GuideViewModel(private val app: GuideDogApp) : AndroidViewModel(app) {
     /** 念出目的地请求确认，录一句解析"确认/重说"。 */
     private suspend fun confirmDestination(place: Place): Confirm {
         app.navState.update { it.copy(phase = "请确认目的地", destName = place.name) }
-        app.speaker.speakAndWait("目的地，${place.name}。确认请说确认，重新设置请说重说")
+        app.speaker.speakAndWait("目的地，${place.name}。确认地址，请说正确；重新设置，请说错误")
         val pcm = app.voiceRecorder.record() ?: return Confirm.UNCLEAR
         val text = when (val asr = withContext(Dispatchers.IO) { app.relayClient.asr(pcm, SAMPLE_RATE) }) {
             is AsrResult.Ok -> asr.text
